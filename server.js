@@ -2,6 +2,7 @@
 // SSLIVE SERVER 
 // MADE BY POKLTY
 // 7/11/2026 14:08, do not impersonate
+// 1.3 version 7/11/26 19:42
 // ========================================
 
 
@@ -97,26 +98,37 @@ wss.on('connection', (ws, req) => {
                 s.viewers = Math.max(0, s.viewers - 1);
             }
         });
-    } else if (role === 'broadcaster') {
+} else if (role === 'broadcaster') {
         ws.on('message', (message) => {
             try {
                 const data = JSON.parse(message);
-                if (data.type !== 'chat_message') return;
+                
+                if (data.type === 'frame') {
+                    const frame = { timestamp: Date.now(), data: data.payload };
+                    currentStream.buffer.push(frame);
+                    if (currentStream.buffer.length > BUFFER_SIZE) currentStream.buffer.shift();
+                    
+                    wss.clients.forEach(client => {
+                        if (client !== ws && client.readyState === WebSocket.OPEN && client.streamId === streamId) {
+                            client.send(JSON.stringify({ type: 'frame', payload: frame }));
+                        }
+                    });
+                }
+                
+                if (data.type === 'chat_message') {
+                    const chatEntry = { 
+                        timestamp: Date.now(), 
+                        userId: data.userId || 'Anonymous', 
+                        text: data.text 
+                    };
+                    
+                    wss.clients.forEach(client => {
+                        if (client.readyState === WebSocket.OPEN && client.streamId === streamId) {
+                            client.send(JSON.stringify({ type: 'chat', payload: chatEntry }));
+                        }
+                    });
+                }
 
-                const frame = { 
-                    timestamp: Date.now(), 
-                    userId: data.userId || 'Anonymous', 
-                    text: data.text 
-                };
-                
-                currentStream.buffer.push(frame);
-                if (currentStream.buffer.length > BUFFER_SIZE) currentStream.buffer.shift();
-                
-                wss.clients.forEach(client => {
-                    if (client.readyState === WebSocket.OPEN && client.streamId === streamId) {
-                        client.send(JSON.stringify({ type: 'chat', payload: frame }));
-                    }
-                });
             } catch (e) {
                 console.error('Bad JSON on WS message');
             }
