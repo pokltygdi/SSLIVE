@@ -13,7 +13,7 @@ const cors = require('cors');
 const NodeMediaServer = require('node-media-server');
 
 const streams = new Map();
-const BUFFER_SIZE = 50;
+const BUFFER_SIZE = 10; // change it if you want
 
 // RTMP
 const nms = new NodeMediaServer({
