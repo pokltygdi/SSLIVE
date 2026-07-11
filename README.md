@@ -25,7 +25,7 @@ For quick deployment on Windows, simply double-click the `run.bat` file. It will
 
 ---
 
-## 📺 How to Stream (Broadcaster Tutorial)
+## How to Stream (Broadcaster Tutorial)
 
 You can send media to SSLIVE using two methods:
 
@@ -49,3 +49,64 @@ ws.onopen = () => {
     };
     ws.send(JSON.stringify(framePayload));
 };
+```
+
+---
+
+## How to Consume (Website Integration Tutorial)
+
+Integrating the live feed into your frontend application is straightforward via standard WebSockets.
+
+### Integrating the Player on Your Site
+
+When a viewer connects, the server instantly dumps the current active RAM buffer to sync the playback, then feeds live frames in real-time.
+
+```javascript
+// Connect to the stream as a viewer
+const streamId = 'my-awesome-stream';
+const socketUrl = `ws://localhost:3000?stream=${streamId}&role=viewer`;
+const ws = new WebSocket(socketUrl);
+
+ws.onmessage = (event) => {
+    const data = JSON.parse(event.data);
+
+    if (data.type === 'buffer') {
+        console.log('Received initial rolling buffer:', data.payload);
+        // Load the last 10 frames to instantly catch up with the stream
+        data.payload.forEach(frame => renderFrameToCanvas(frame.data));
+    } 
+    
+    if (data.type === 'frame') {
+        // Render incoming real-time frame
+        renderFrameToCanvas(data.payload.data);
+    }
+};
+
+function renderFrameToCanvas(base64Data) {
+    if (!base64Data) return;
+    // Your rendering logic here (e.g., painting onto an HTML5 <canvas> or <img> src)
+    // Example: document.getElementById('player').src = 'data:image/jpeg;base64,' + base64Data;
+}
+
+```
+
+---
+
+## API Monitoring Reference
+
+* **GET** `/api/streams` - Fetch a live list of all active broadcast channels, current viewers count, and dynamic memory load metrics.
+* **POST** `/api/stream/create` - Programmatically register a secure stream endpoint.
+* **DELETE** `/api/stream/:id` - Explicitly kill and flush a stream environment.
+
+---
+
+```
+// ========================================
+// MADE BY POKLTY
+// ========================================
+
+```
+
+```
+
+```
