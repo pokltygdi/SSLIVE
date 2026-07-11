@@ -78,6 +78,25 @@ app.delete('/api/stream/:id', (req, res) => {
     res.json({ success: true });
 });
 
+app.post('/api/stream/create', (req, res) => {
+    const streamId = req.body.streamId || 'stream_' + Math.random().toString(36).slice(2, 9);
+    const streamName = req.body.name || 'Без названия';
+    
+    if (streams.has(streamId)) {
+        return res.status(400).json({ error: 'Stream already exists' });
+    }
+
+    streams.set(streamId, {
+        active: false,
+        name: streamName,
+        buffer: [],
+        viewers: 0,
+        createdAt: Date.now()
+    });
+    
+    res.json({ success: true, streamId });
+});
+
 wss.on('connection', (ws, req) => {
     const url = new URL(req.url, `http://${req.headers.host}`);
     const streamId = url.searchParams.get('stream');
