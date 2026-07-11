@@ -11,26 +11,36 @@ const WebSocket = require('ws');
 const cors = require('cors');
 const NodeMediaServer = require('node-media-server');
 
-const streams = {};
-const BUFFER_SIZE = 10;
+const streams = new Map();
+const BUFFER_SIZE = 50;
 
 // RTMP
 const nms = new NodeMediaServer({
-    rtmp: { port: 1935, chunk_size: 60000 },
+    rtmp: { 
+        port: 1935, 
+        chunk_size: 60000,
+        gop_cache: true,
+        ping: 30,
+        ping_timeout: 60
+    },
     http: { port: 8080, allow_origin: '*' }
 });
 
 nms.on('prePublish', (id, StreamPath) => {
     const streamId = StreamPath.replace('/live/', '');
-    streams[streamId] = { active: true, buffer: [], viewers: 0, createdAt: Date.now() };
+    console.log(`> Streamer connected: ${streamId}`);
+    
+    if (!streams.has(streamId)) {
+        streams.set(streamId, { active: true, buffer: [], viewers: 0, createdAt: Date.now() });
+    } else {
+        streams.get(streamId).active = true;
+    }
 });
 
-nms.on('rtmp', (id, StreamPath, args, packet) => {
+nms.on('donePublish', (id, StreamPath) => {
     const streamId = StreamPath.replace('/live/', '');
-    if (!streams[streamId]) return;
-    const frame = { timestamp: Date.now(), data: packet.data ? packet.data.toString('base64') : null };
-    streams[streamId].buffer.push(frame);
-    if (streams[streamId].buffer.length > BUFFER_SIZE) streams[streamId].buffer.shift();
+    console.log(`> Streamer disconnected: ${streamId}`);
+    if (streams.has(streamId)) streams.get(streamId).active = false;
 });
 
 // API + WebSocket 
@@ -42,33 +52,29 @@ app.use(cors());
 app.use(express.json());
 
 app.get('/api/streams', (req, res) => {
-    res.json(Object.keys(streams).map(id => ({
+    res.json(Array.from(streams.entries()).map(([id, data]) => ({
         id,
-        active: streams[id].active !== false,
-        viewers: streams[id].viewers || 0,
-        bufferSize: streams[id].buffer?.length || 0,
-        createdAt: streams[id].createdAt
+        active: data.active,
+        viewers: data.viewers,
+        bufferSize: data.buffer.length,
+        createdAt: data.createdAt
     })));
 });
 
 app.post('/api/stream/create', (req, res) => {
-    const streamId = req.body.streamId || 'stream_' + Date.now();
-    if (!streams[streamId]) {
-        streams[streamId] = { active: true, buffer: [], viewers: 0, createdAt: Date.now() };
-        res.json({ success: true, streamId });
-    } else {
-        res.status(400).json({ error: 'Stream already exists' });
-    }
+    const streamId = req.body.streamId || 'stream_' + Math.random().toString(36).slice(2, 9);
+    if (streams.has(streamId)) return res.status(400).json({ error: 'Stream already exists' });
+
+    streams.set(streamId, { active: false, buffer: [], viewers: 0, createdAt: Date.now() });
+    res.json({ success: true, streamId });
 });
 
 app.delete('/api/stream/:id', (req, res) => {
     const streamId = req.params.id;
-    if (streams[streamId]) {
-        delete streams[streamId];
-        res.json({ success: true });
-    } else {
-        res.status(404).json({ error: 'Stream not found' });
-    }
+    if (!streams.has(streamId)) return res.status(404).json({ error: 'Stream not found' });
+    
+    streams.delete(streamId);
+    res.json({ success: true });
 });
 
 wss.on('connection', (ws, req) => {
@@ -76,36 +82,48 @@ wss.on('connection', (ws, req) => {
     const streamId = url.searchParams.get('stream');
     const role = url.searchParams.get('role');
 
-    if (!streamId) { ws.close(); return; }
+    if (!streamId || !streams.has(streamId)) return ws.close(4001, 'Stream not found'); 
+    
     ws.streamId = streamId;
+    const currentStream = streams.get(streamId);
 
     if (role === 'viewer') {
-        if (!streams[streamId]) { ws.close(); return; }
-        streams[streamId].viewers = (streams[streamId].viewers || 0) + 1;
-        ws.send(JSON.stringify({ type: 'buffer', payload: streams[streamId].buffer }));
+        currentStream.viewers++;
+        ws.send(JSON.stringify({ type: 'buffer', payload: currentStream.buffer }));
+        
         ws.on('close', () => {
-            if (streams[streamId]) streams[streamId].viewers = Math.max(0, (streams[streamId].viewers || 1) - 1);
+            if (streams.has(streamId)) {
+                const s = streams.get(streamId);
+                s.viewers = Math.max(0, s.viewers - 1);
+            }
         });
     } else if (role === 'broadcaster') {
         ws.on('message', (message) => {
             try {
                 const data = JSON.parse(message);
-                if (data.type === 'frame') {
-                    if (!streams[streamId]) {
-                        streams[streamId] = { active: true, buffer: [], viewers: 0, createdAt: Date.now() };
+                if (data.type !== 'chat_message') return;
+
+                const frame = { 
+                    timestamp: Date.now(), 
+                    userId: data.userId || 'Anonymous', 
+                    text: data.text 
+                };
+                
+                currentStream.buffer.push(frame);
+                if (currentStream.buffer.length > BUFFER_SIZE) currentStream.buffer.shift();
+                
+                wss.clients.forEach(client => {
+                    if (client.readyState === WebSocket.OPEN && client.streamId === streamId) {
+                        client.send(JSON.stringify({ type: 'chat', payload: frame }));
                     }
-                    const frame = { timestamp: Date.now(), data: data.payload };
-                    streams[streamId].buffer.push(frame);
-                    if (streams[streamId].buffer.length > BUFFER_SIZE) streams[streamId].buffer.shift();
-                    wss.clients.forEach(client => {
-                        if (client !== ws && client.readyState === WebSocket.OPEN && client.streamId === streamId) {
-                            client.send(JSON.stringify({ type: 'frame', payload: frame }));
-                        }
-                    });
-                }
-            } catch (e) {}
+                });
+            } catch (e) {
+                console.error('Bad JSON on WS message');
+            }
         });
-        ws.on('close', () => { if (streams[streamId]) streams[streamId].active = false; });
+        ws.on('close', () => { 
+            if (streams.has(streamId)) streams.get(streamId).active = false; 
+        });
     }
 });
 
