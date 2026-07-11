@@ -55,6 +55,7 @@ app.use(express.json());
 app.get('/api/streams', (req, res) => {
     res.json(Array.from(streams.entries()).map(([id, data]) => ({
         id,
+        name: data.name || 'No name',
         active: data.active,
         viewers: data.viewers,
         bufferSize: data.buffer.length,
@@ -80,7 +81,7 @@ app.delete('/api/stream/:id', (req, res) => {
 
 app.post('/api/stream/create', (req, res) => {
     const streamId = req.body.streamId || 'stream_' + Math.random().toString(36).slice(2, 9);
-    const streamName = req.body.name || 'Без названия';
+    const streamName = req.body.name || 'No name';
     
     if (streams.has(streamId)) {
         return res.status(400).json({ error: 'Stream already exists' });
