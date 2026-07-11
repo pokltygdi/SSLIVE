@@ -98,23 +98,23 @@ wss.on('connection', (ws, req) => {
                 s.viewers = Math.max(0, s.viewers - 1);
             }
         });
-} else if (role === 'broadcaster') {
+    } else if (role === 'broadcaster') {
         ws.on('message', (message) => {
             try {
                 const data = JSON.parse(message);
-                
+
                 if (data.type === 'frame') {
                     const frame = { timestamp: Date.now(), data: data.payload };
                     currentStream.buffer.push(frame);
                     if (currentStream.buffer.length > BUFFER_SIZE) currentStream.buffer.shift();
-                    
+
                     wss.clients.forEach(client => {
                         if (client !== ws && client.readyState === WebSocket.OPEN && client.streamId === streamId) {
                             client.send(JSON.stringify({ type: 'frame', payload: frame }));
                         }
                     });
                 }
-                
+
                 if (data.type === 'chat_message') {
                     const chatEntry = { 
                         timestamp: Date.now(), 
@@ -128,7 +128,6 @@ wss.on('connection', (ws, req) => {
                         }
                     });
                 }
-
             } catch (e) {
                 console.error('Bad JSON on WS message');
             }
