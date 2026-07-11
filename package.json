@@ -1,0 +1,15 @@
+{
+  "name": "sslive",
+  "version": "1.0.0",
+  "description": "Small Storage LIVE — стриминг с буфером в RAM, made by poklty",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "node-media-server": "^2.3.9",
+    "ws": "^8.14.2"
+  }
+}
